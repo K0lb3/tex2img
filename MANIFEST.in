@@ -1,0 +1,4 @@
+include src/*.cpp
+include src/*.cxx
+include src/*.h
+include src/*.py
