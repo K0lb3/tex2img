@@ -1,5 +1,133 @@
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
+#include "main.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+/*
+ *************************************************
+ * 
+ * basisu block decompression
+ * 
+ ************************************************
+*/
+
+#include "basisu/basisu_gpu_texture.h"
+#include "basisu/transcoder/basisu.h"
+
+void _basisu_decompress(uint8_t *src, uint8_t *dst, int &width, int &height, int &format)
+{
+    //fetch compression block settings
+    basisu::texture_format fmt = (basisu::texture_format)format;
+
+    uint32_t block_width = basisu::get_block_width(fmt);
+    uint32_t block_height = basisu::get_block_height(fmt);
+    uint32_t bytes_per_block = basisu::get_bytes_per_block(fmt);
+    uint32_t blocks_x = (width + block_width - 1) / block_width;
+    uint32_t blocks_y = (height + block_height - 1) / block_height;
+
+    basisu::color_rgba pPixels[12 * 12];
+    basisu::color_rgba pix;
+    uint32_t y, x, by, bx, px, py, dxt;
+
+    for (by = 0; by < blocks_y; by++)
+    {
+        for (bx = 0; bx < blocks_x; bx++)
+        {
+            basisu::unpack_block(fmt, src, pPixels);
+
+            src += bytes_per_block;
+
+            for (y = 0; y < block_height; y++)
+            {
+                py = y + by * block_height;
+                if (py >= height)
+                    break;
+                for (x = 0; x < block_width; x++)
+                {
+                    px = x + bx * block_width;
+                    if (px >= width)
+                        break;
+                    dxt = (py * width + px) * 4;
+                    pix = pPixels[y * block_width + x];
+                    dst[dxt + 0] = pix.r;
+                    dst[dxt + 1] = pix.g;
+                    dst[dxt + 2] = pix.b;
+                    dst[dxt + 3] = pix.a;
+                }
+            }
+        }
+    }
+}
+
+#include "basisu/basisu_pvrtc1_4.h"
+
+void _basisu_pvrtc(uint8_t *src, uint32_t src_size, uint8_t *dst, int &width, int &height){
+    basisu::pvrtc4_image pi(width, height);
+    pi.set_to_black();
+    memcpy(&pi.get_blocks()[0], src, src_size);
+    pi.deswizzle();
+    basisu::color_rgba pix;
+    uint32_t pix_pos = 0;
+    //pi.unpack_all_pixels(img);
+    for (uint32_t y = 0; y < height; y++)
+		for (uint32_t x = 0; x < width; x++)
+            {
+                pix = pi.get_pixel(x, y);
+                dst[pix_pos+0] = pix.r;
+                dst[pix_pos+1] = pix.g;
+                dst[pix_pos+2] = pix.b;
+                dst[pix_pos+3] = pix.a;
+                pix_pos += 4;
+            }
+}
+
+void _decompress_atc(uint8_t *src, uint8_t *dst, int &width, int &height, bool &alpha)
+{
+    uint8_t block_width = 4;
+    uint8_t block_height = 4;
+    uint32_t blocks_x = (width + block_width - 1) / block_width;
+    uint32_t blocks_y = (height + block_height - 1) / block_height;
+    uint8_t block_size = alpha ? 16 : 8;
+
+    basisu::color_rgba pPixels[12 * 12];
+    basisu::color_rgba pix;
+    uint32_t y, x, by, bx, px, py, dxt;
+
+    for (by = 0; by < blocks_y; by++)
+    {
+        for (bx = 0; bx < blocks_x; bx++)
+        {
+            if (alpha)
+            {
+                basisu::unpack_atc(src + 8, pPixels);
+                basisu::unpack_bc4(src, &pPixels[0].a, sizeof(basisu::color_rgba));
+            }
+            else
+                basisu::unpack_atc(src, pPixels);
+
+            src += block_size;
+
+            for (y = 0; y < block_height; y++)
+            {
+                py = y + by * block_height;
+                if (py >= height)
+                    break;
+                for (x = 0; x < block_width; x++)
+                {
+                    px = x + bx * block_width;
+                    if (px >= width)
+                        break;
+                    dxt = (py * width + px) * (alpha ? 4 : 3);
+                    pix = pPixels[y * block_width + x];
+                    dst[dxt + 0] = pix.r;
+                    dst[dxt + 1] = pix.g;
+                    dst[dxt + 2] = pix.b;
+                    if (alpha)
+                        dst[dxt + 3] = pix.a;
+                }
+            }
+        }
+    }
+}
 
 /*
  *************************************************
@@ -15,51 +143,37 @@ static constexpr size_t k_size_in_bytes = 16;
 static constexpr size_t k_bytes_per_pixel_unorm8 = 4;
 static uint8_t block[256];
 
-static PyObject * decompress_astc(PyObject * self, PyObject * args) {
-    uint8_t* src;
-    size_t src_size;
-    int block_width, block_height;
-    int width, height;
-    bool isSRGB;
+/*
+    The input is a bytearray that consists of multiple encoded "blocks" which are queued one after another.
+    The decoded "blocks" correspond to specific regions of the image.
 
-    if (!PyArg_ParseTuple(args, "y#iiiib", &src, &src_size, &width, &height, &block_width, &block_height, &isSRGB)) {
-        return NULL;
-    }
+    e.g.
+        image size      -   1024x1024
+        block size      -   10x10
+        block number    -   103
+        ->
+        this block corresponds to the section
+        (1020, 0, 1030, 10)
+        so we have to cut of the last 6 decoded pixels
 
-    if (width == 0 || height == 0) {
-        return NULL;
-    }
-
-    /*
-        The input is a bytearray that consists of multiple encoded "blocks" which are queued one after another.
-        The decoded "blocks" correspond to specific regions of the image.
-
-        e.g.
-            image size      -   1024x1024
-            block size      -   10x10
-            block number    -   103
-            ->
-            this block corresponds to the section
-            (1020, 0, 1030, 10)
-            so we have to cut of the last 6 decoded pixels
-
-            -> blocks in x:  floor(width + block_width - 1)/block_width
-            -> blocks in y:  floor(height + block_height - 1)/block_height
-        
-        Since the image is saved linear,
-        we have to copy each line of the decoded block to the correct position in the image array.
-        
-    */
-    uint8_t *dst = (uint8_t*) malloc(width*height*k_bytes_per_pixel_unorm8); 
+        -> blocks in x:  floor(width + block_width - 1)/block_width
+        -> blocks in y:  floor(height + block_height - 1)/block_height
     
+    Since the image is saved linear,
+    we have to copy each line of the decoded block to the correct position in the image array.
+    
+*/
+
+void _decompress_astc(uint8_t *src, uint8_t *dst, int &width, int &height, int &block_width, int &block_height, bool &isSRGB)
+{
     int blocks_x = (width + block_width - 1) / block_width;
     int blocks_y = (height + block_height - 1) / block_height;
-    
+
     int bx, by, row_length;
     int py, y, dst_pixel_pos, block_pixel_pos;
 
     int normal_row_length = block_width * k_bytes_per_pixel_unorm8;
-    int short_row_length = (width - block_width*(blocks_x -1)) * k_bytes_per_pixel_unorm8;
+    int short_row_length = (width - block_width * (blocks_x - 1)) * k_bytes_per_pixel_unorm8;
 
     for (by = 0; by < blocks_y; by++)
         for (bx = 0; bx < blocks_x; bx++)
@@ -72,12 +186,13 @@ static PyObject * decompress_astc(PyObject * self, PyObject * args) {
             // write the block to the correct position
 
             // select the required row length
-            if (bx < blocks_x -1)
+            if (bx < blocks_x - 1)
                 row_length = normal_row_length;
             else
                 row_length = short_row_length;
-            
-            for (y = 0; y < block_height; y++){
+
+            for (y = 0; y < block_height; y++)
+            {
                 // y position in the decoded image
                 py = y + by * block_height;
                 // we can ignore it if it's above the height -> out of the original image
@@ -87,79 +202,9 @@ static PyObject * decompress_astc(PyObject * self, PyObject * args) {
                 // calculate the correct position in the decoded image
                 dst_pixel_pos = (py * width + bx * block_width) * k_bytes_per_pixel_unorm8;
                 block_pixel_pos = (y * block_width) * k_bytes_per_pixel_unorm8;
-                memcpy(dst+dst_pixel_pos, block+block_pixel_pos, row_length);
+                memcpy(dst + dst_pixel_pos, block + block_pixel_pos, row_length);
             }
         }
-
-    PyObject *ret = Py_BuildValue("y#", dst, width*height*k_bytes_per_pixel_unorm8);
-    free(dst);
-    return ret;
-}
-
-
-#include "basisu/basisu_gpu_texture.h"
-
-static PyObject * decompress_atc(PyObject * self, PyObject * args) {
-    uint8_t* src;
-    size_t src_size;
-    int width, height;
-    bool alpha;
-
-    if (!PyArg_ParseTuple(args, "y#iib", &src, &src_size, &width, &height, &alpha)) {
-        return NULL;
-    }
-
-    if (width == 0 || height == 0) {
-        return NULL;
-    }
-    uint8_t* dst = (uint8_t*) malloc(width * height * (alpha ? 4 : 3));
-    
-    uint8_t block_width = 4;
-    uint8_t block_height = 4;
-    uint32_t blocks_x = (width + block_width - 1) / block_width;
-	uint32_t blocks_y = (height + block_height - 1) / block_height;
-	uint8_t block_size = alpha ? 16 : 8;
-    
-    basisu::color_rgba pPixels[12*12];
-    basisu::color_rgba pix;
-    uint32_t dxt_x,dxt_y,dxt_pix,y,x,by,bx,px,py,dxt;
-
-    for (by = 0; by < blocks_y; by++)
-    {
-        for (bx = 0; bx < blocks_x; bx++)
-        {
-            if (alpha){
-                basisu::unpack_atc(src + 8, pPixels);
-			    basisu::unpack_bc4(src, &pPixels[0].a, sizeof(basisu::color_rgba));
-            }
-            else
-                basisu::unpack_atc(src, pPixels);
-
-            src += block_size;
-
-            for (y = 0; y < block_height; y++){
-                py = y + by * block_height;
-                if (py >= height)
-                    break;
-                for (x = 0; x < block_width; x++){
-                    px = x + bx * block_width;
-                    if (px >= width)
-                        break;
-                    dxt = (py * width + px) * (alpha?4:3);
-                    pix = pPixels[y*block_width + x];
-                    dst[dxt+0] = pix.r;
-                    dst[dxt+1] = pix.g;
-                    dst[dxt+2] = pix.b;
-                    if (alpha)
-                        dst[dxt+3] = pix.a;
-                    
-                }
-            }
-        }
-    }
-    PyObject *ret = Py_BuildValue("y#", dst, width*height*(alpha?4:3));
-    free(dst);
-    return ret;
 }
 
 /*
@@ -170,376 +215,195 @@ static PyObject * decompress_atc(PyObject * self, PyObject * args) {
  ************************************************
 */
 
-#include "etcpack.h"
+void conv_big_endian_4byte_word(unsigned int *blockadr, uint8 *bytes)
+{
+    unsigned int block;
+    block = 0;
+    block |= bytes[0];
+    block = block << 8;
+    block |= bytes[1];
+    block = block << 8;
+    block |= bytes[2];
+    block = block << 8;
+    block |= bytes[3];
 
-static PyObject * decompress_etc(PyObject * self, PyObject * args) {
-    // parse input
-    uint8* src;
-    size_t src_size;
-    int width, height, format;
+    blockadr[0] = block;
+}
 
-    if (!PyArg_ParseTuple(args, "y#iii", &src, &src_size, &width, &height, &format)) {
-        return NULL;
-    }
+void _decompress_etc(uint8 *src, uint8 *&img, uint8 *&alphaimg, int &active_width, int &active_height, int &format)
+{
+    int width, height;
+    unsigned int block_part1, block_part2;
+    uint8 *newimg, *newalphaimg, *alphaimg2;
+    unsigned short w, h;
+    int xx, yy;
 
-    if (width == 0 || height == 0) {
-        return NULL;
-    }
-    
-    uint8* img;
-    uint8* alphaimg;
-    // moved to a seperate .h to be able to use the etcpack.cxx directly
-    _decompress_etc(src, img, alphaimg, width, height, format);
+    w = ((active_width + 3) / 4) * 4;
+    h = ((active_height + 3) / 4) * 4;
+    width = w;
+    height = h;
 
-    PyObject* ret;
-    if (format == ETC1_RGB_NO_MIPMAPS || format == ETC2PACKAGE_RGB_NO_MIPMAPS || format == ETC2PACKAGE_sRGB_NO_MIPMAPS){
-        ret = Py_BuildValue("y#", img, height*width*3);
-    }
-    else if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS_OLD || format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_RGBA1_NO_MIPMAPS){
-        // merge img and alphaimg
-        uint8* newimg = (uint8*) malloc(height * width * 4);
-        for (uint32_t pos = 0; pos < height * width; pos++){
-              memcpy(newimg+pos*4, img+pos*3, 3);
-              newimg[pos*4+3] = alphaimg[pos];
-        }
-        ret = Py_BuildValue("y#", newimg, height*width*4);
-        free(newimg);
-    }
+    /*
+    if (format=ETC2PACKAGE_R_NO_MIPMAPS || format=ETC2PACKAGE_RG_NO_MIPMAPS)
+		formatSigned=1;
+
+	else if (format=ETC1_RGB_NO_MIPMAPS)
+		codec=CODEC_ETC;
+    */
+
+    if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+        img = (uint8 *)malloc(3 * width * height * 2);
     else
-        ret = Py_BuildValue("y#", img, height*width*6);
-    free(img);
-    free(alphaimg);
-    return ret;
-}
+        img = (uint8 *)malloc(3 * width * height);
 
-/*
- *************************************************
- * 
- * PVRTC
- * 
- ************************************************
-*/
-
-#include "pvrtc_decoder/PVRTDecompress.h"
-
-static PyObject * decompress_pvrtc(PyObject * self, PyObject * args) {
-    //works
-    uint8_t* src;
-    unsigned int src_size;
-    uint32_t width, height, do2bit_mode;
-
-    if (!PyArg_ParseTuple(args, "y#iib", &src, &src_size, &width, &height, &do2bit_mode)) {
-        return NULL;
-    }
-
-    uint32_t dst_size = sizeof(uint8_t) * width * height * 4;
-	uint8_t* dst = (uint8_t*) malloc(dst_size);
-	pvr::PVRTDecompressPVRTC(src, do2bit_mode, width, height, dst);
-
-    PyObject* ret = Py_BuildValue("y#", dst, dst_size);
-    free(dst);
-    
-    return ret;
-}
-/*
-wrong decompression - no node documentation
-static PyObject * decompress_etc(PyObject * self, PyObject * args) {
-    PyObject* ret;
-    uint8_t* src;
-    unsigned int src_size;
-    uint32_t width, height, mode;
-
-    if (!PyArg_ParseTuple(args, "y#iib", &src, &src_size, &width, &height, &mode)) {
-        return NULL;
-    }
-
-    uint32_t dst_size = sizeof(uint8_t) * width * height * 4;
-	uint8_t* dst = (uint8_t*) malloc(dst_size);
-	pvr::PVRTDecompressETC(src, width, height, dst, mode);
-
-    ret = Py_BuildValue("y#", dst, dst_size);
-    free(dst);
-    
-    return ret;
-}
-*/
-
-/*
- *************************************************
- * 
- * Crunch
- * 
- ************************************************
-*/
-#define _CRT_SECURE_NO_WARNINGS
-
-#if defined(__APPLE__)
-#define malloc_usable_size malloc_size
-#else
-#if defined(__FreeBSD__)
-#include <stdlib.h>
-#else
-#include <malloc.h>
-#endif
-#ifdef _WIN32
-#define malloc_usable_size _msize
-#endif
-#endif
-
-#include "crunch/crn_decomp.h"
-
-// texture info
-static PyObject * crunch_get_texture_info(PyObject * self, PyObject * args) {
-    unsigned char * buf;
-    crnd::uint32 buf_length;
-    if (!PyArg_ParseTuple(args, "y#", &buf, &buf_length)) {
-        return NULL;
-    }
-    crnd::crn_texture_info texture_info;
-    texture_info.m_struct_size = sizeof(crnd::crn_texture_info);
-    if (!crnd::crnd_get_texture_info(buf, buf_length, & texture_info)) {
-        PyErr_Format(PyExc_ZeroDivisionError, "Failed retrieving CRN texture info!");
-        return NULL;
-    }
-    return Py_BuildValue("{s:I,s:I,s:I,s:I,s:I,s:I,s:I,s:I}",
-        "width", texture_info.m_width,
-        "height", texture_info.m_height,
-        "levels", texture_info.m_levels,
-        "faces", texture_info.m_faces,
-        "bytes_per_block", texture_info.m_bytes_per_block,
-        "userdata0", texture_info.m_userdata0,
-        "userdata1", texture_info.m_userdata1,
-        "format", texture_info.m_format
-    );
-}
-
-// level info
-static PyObject * crunch_get_level_info(PyObject * self, PyObject * args) {
-    unsigned char * buf;
-    crnd::uint32 buf_length;
-    crnd::uint32 level_index;
-    if (!PyArg_ParseTuple(args, "y#I", &buf, &buf_length, &level_index)) {
-        return NULL;
-    }
-
-    crnd::crn_level_info level_info;
-    level_info.m_struct_size = sizeof(crnd::crn_level_info);
-    if (crnd::crnd_get_level_info(buf, buf_length, level_index, &level_info) == 0) {
-        PyErr_Format(PyExc_ZeroDivisionError, "Dividing %d by zero!", level_index);
-        return NULL;
-    }
-
-    return Py_BuildValue("{s:I,s:I,s:I,s:I,s:I,s:I,s:I}",
-        "width", level_info.m_width,
-        "height", level_info.m_height,
-        "faces", level_info.m_faces,
-        "blocks_x", level_info.m_blocks_x,
-        "blocks_y", level_info.m_blocks_y,
-        "bytes_per_block", level_info.m_bytes_per_block,
-        "format", level_info.m_format
-    );
-}
-
-// unpack level
-//#define cCRNMaxFaces 32
-static PyObject * crunch_unpack_level(PyObject * self, PyObject * args) {
-    const void *pData;
-    crnd::uint32 data_size;
-    crnd::uint32 level;
-    if (!PyArg_ParseTuple(args, "y#I", &pData, &data_size, &level)) {
-        return NULL;
-    }
-
-    if ((!pData) || (data_size < 1)) return false;
-
-    crnd::crn_texture_info tex_info;
-    tex_info.m_struct_size = sizeof(crnd::crn_texture_info);
-    if (!crnd_get_texture_info(pData, data_size, & tex_info)) {
-        fprintf(stdout,"crnd_get_texture_info() failed");
-        return false;
-    }
-
-    crnd::uint32 tex_num_blocks_x = (tex_info.m_width + 3) >> 2;
-    crnd::uint32 tex_num_blocks_y = (tex_info.m_height + 3) >> 2;
-
-    size_t dxt_data_size = tex_info.m_bytes_per_block * tex_num_blocks_x * tex_num_blocks_y * tex_info.m_faces;
-    crnd::uint8* dxt_data = (crnd::uint8*)malloc(dxt_data_size);
-
-    // Create temp buffer big enough to hold the largest mip level, and all faces if it's a cubemap.
-    // dxt_data.resize(tex_info.m_bytes_per_block * tex_num_blocks_x * tex_num_blocks_y * tex_info.m_faces);
-
-    crnd::crnd_unpack_context pContext = crnd::crnd_unpack_begin(pData, data_size);
-
-    if (!pContext) {
-        fprintf(stdout,"crnd_unpack_begin() failed");
-        return false;
-    }
-
-    void * pFaces[cCRNMaxFaces];
-
-    crnd::uint32 f;
-    for (f = tex_info.m_faces; f < cCRNMaxFaces; f++)
-        pFaces[f] = NULL;
-
-    crnd::uint32 level_width = std::max(1U, tex_info.m_width >> level);
-    crnd::uint32 level_height = std::max(1U, tex_info.m_height >> level);
-    crnd::uint32 num_blocks_x = (level_width + 3U) >> 2U;
-    crnd::uint32 num_blocks_y = (level_height + 3U) >> 2U;
-
-    crnd::uint32 row_pitch = num_blocks_x * tex_info.m_bytes_per_block;
-    crnd::uint32 size_of_face = num_blocks_y * row_pitch;
-
-
-    for (f = 0; f < tex_info.m_faces; f++)
-        pFaces[f] = &dxt_data[f * size_of_face];
-
-    if (!crnd::crnd_unpack_level(pContext, pFaces, dxt_data_size, row_pitch, level)) {
-        crnd::crnd_unpack_end(pContext);
-        fprintf(stdout,"crnd_unpack_level() failed");
-        return false;
-    }
-    
-    crnd::crnd_unpack_end(pContext);
-    return Py_BuildValue("y#", pFaces[0], size_of_face);
-}
-
-/*
- *************************************************
- * 
- * Python Connection
- * 
- ************************************************
-*/
-
-// Exported methods are collected in a table
-static struct PyMethodDef method_table[] = {
+    if (!img)
     {
-        "decompress_astc",
-        (PyCFunction) decompress_astc,
-        METH_VARARGS,
-        "Decompresses raw astc-compressed data to RGBA\n\
-        :param src: compressed data\n\
-        :type src: bytes\n\
-        :param width: image width\n\
-        :type width: int\n\
-        :param height: image height\n\
-        :type height: int\n\
-        :param block_width: width of a block\n\
-        :type block_width: int\n\
-        :param block_height: height of a blocks\n\
-        :type block_height: int\n\
-        :param isSRGB: False\n\
-        :type isSRGB: bool"
-    },
+        printf("Error: could not allocate memory\n");
+        //exit(0);
+    }
+    if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_R_NO_MIPMAPS || format == ETC2PACKAGE_RG_NO_MIPMAPS || format == ETC2PACKAGE_RGBA1_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA1_NO_MIPMAPS)
     {
-        "decompress_atc",
-        (PyCFunction) decompress_atc,
-        METH_VARARGS,
-        "Decompresses raw atc-compressed data to RGBA\n\
-        :param src: compressed data\n\
-        :type src: bytes\n\
-        :param width: image width\n\
-        :type width: int\n\
-        :param height: image height\n\
-        :type height: int\n\
-        :param alpha: True if ATC RGBA else False\n\
-        :type alpha: bool"
-    },
+        //printf("alpha channel decompression\n");
+        alphaimg = (uint8 *)malloc(width * height * 2);
+        setupAlphaTableAndValtab();
+        if (!alphaimg)
+        {
+            printf("Error: could not allocate memory for alpha\n");
+            exit(0);
+        }
+    }
+    if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
     {
-        "decompress_pvrtc",
-        (PyCFunction) decompress_pvrtc,
-        METH_VARARGS,
-        "Decompresses raw pvrtc-compressed data to RGBA\n\
-        :param src: compressed data\n\
-        :type src: bytes\n\
-        :param width: image width\n\
-        :type width: int\n\
-        :param height: image height\n\
-        :type height: int\n\
-        :param do2bit_mode: 0\n\
-        :type do2bit_mode: int"
-    },
-    {
-        "decompress_etc",
-        (PyCFunction) decompress_etc,
-        METH_VARARGS,
-        "Decompresses raw etc-compressed data to RGB(A)\n\
-        Formats:\n\
-             0 = ETC1_RGB_NO_MIPMAPS\n\
-             1 = ETC2PACKAGE_RGB_NO_MIPMAPS\n\
-             2 = ETC2PACKAGE_RGBA_NO_MIPMAPS_OLD\n\
-             3 = ETC2PACKAGE_RGBA_NO_MIPMAPS\n\
-             4 = ETC2PACKAGE_RGBA1_NO_MIPMAPS\n\
-             5 = ETC2PACKAGE_R_NO_MIPMAPS\n\
-             6 = ETC2PACKAGE_RG_NO_MIPMAPS\n\
-             7 = ETC2PACKAGE_R_SIGNED_NO_MIPMAPS\n\
-             8 = ETC2PACKAGE_RG_SIGNED_NO_MIPMAPS\n\
-             9 = ETC2PACKAGE_sRGB_NO_MIPMAPS\n\
-            10 = ETC2PACKAGE_sRGBA_NO_MIPMAPS\n\
-            11 = ETC2PACKAGE_sRGBA1_NO_MIPMAPS\n\
-        \n\
-        :param src: compressed data\n\
-        :type src: bytes\n\
-        :param width: image width\n\
-        :type width: int\n\
-        :param height: image height\n\
-        :type height: int\n\
-        :param format: see list above\n\
-        :type format: int"
-    },
-    {
-        "crunch_get_texture_info",
-        (PyCFunction) crunch_get_texture_info,
-        METH_VARARGS,
-        "Retrieves texture information from the CRN file.\n\
-        :param data: byte data of the file\n\
-        :type data: bytes\n\
-        :returns: dict"
-    },
-    {
-        "crunch_get_level_info",
-        (PyCFunction) crunch_get_level_info,
-        METH_VARARGS,
-        "Retrieves mipmap level specific information from the CRN file.\n\
-        :param data: byte data of the file\n\
-        :type data: bytes\n\
-        :param level: mipmap level\n\
-        :type level: int\n\
-        :returns: dict"
-    },
-    {
-        "crunch_unpack_level",
-        (PyCFunction) crunch_unpack_level,
-        METH_VARARGS,
-        "Transcodes the specified mipmap level to a destination buffer.\n\
-        :param data: byte data of the file\n\
-        :type data: bytes\n\
-        :param level: mipmap level\n\
-        :type level: int\n\
-        :returns: bytes"
-    },
-    {
-        NULL,
-        NULL,
-        0,
-        NULL
-    } // Sentinel value ending the table
-};
+        alphaimg2 = (uint8 *)malloc(width * height * 2);
+        if (!alphaimg2)
+        {
+            printf("Error: could not allocate memory\n");
+            exit(0);
+        }
+    }
 
-// A struct contains the definition of a module
-static PyModuleDef tex2img_module = {
-    PyModuleDef_HEAD_INIT,
-    "tex2img", // Module name
-    "a texture decompression C++-extension for Python",
-    -1, // Optional size of the module state memory
-    method_table,
-    NULL, // Optional slot definitions
-    NULL, // Optional traversal function
-    NULL, // Optional clear function
-    NULL // Optional module deallocation function
-};
+    for (int y = 0; y < height / 4; y++)
+    {
+        for (int x = 0; x < width / 4; x++)
+        {
+            //decode alpha channel for RGBA
+            if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA_NO_MIPMAPS)
+            {
+                //memcpy(alphablock, src+offset, 8);
+                //fread(alphablock, 1, 8, f);
+                //decompressBlockAlpha(alphablock, alphaimg, width, height, 4 * x, 4 * y);
+                decompressBlockAlpha(src, alphaimg, width, height, 4 * x, 4 * y);
+                src += 8;
+            }
+            //color channels for most normal modes
+            if (format != ETC2PACKAGE_R_NO_MIPMAPS && format != ETC2PACKAGE_RG_NO_MIPMAPS)
+            {
+                //we have normal ETC2 color channels, decompress these
+                conv_big_endian_4byte_word(&block_part1, src);
+                src += 4;
+                conv_big_endian_4byte_word(&block_part2, src);
+                src += 4;
+                if (format == ETC2PACKAGE_RGBA1_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA1_NO_MIPMAPS)
+                    decompressBlockETC21BitAlpha(block_part1, block_part2, img, alphaimg, width, height, 4 * x, 4 * y);
+                else
+                    decompressBlockETC2(block_part1, block_part2, img, width, height, 4 * x, 4 * y);
+            }
+            //one or two 11-bit alpha channels for R or RG.
+            if (format == ETC2PACKAGE_R_NO_MIPMAPS || format == ETC2PACKAGE_RG_NO_MIPMAPS)
+            {
+                //fread(alphablock, 1, 8, f);
+                //memcpy(alphablock, src+offset, 8);
+                //decompressBlockAlpha16bit(alphablock, alphaimg, width, height, 4 * x, 4 * y);
+                decompressBlockAlpha16bit(src, alphaimg, width, height, 4 * x, 4 * y);
+                src += 8;
+            }
+            if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+            {
+                //fread(alphablock, 1, 8, f);
+                //memcpy(alphablock, src+offset, 8);
+                //decompressBlockAlpha16bit(alphablock, alphaimg2, width, height, 4 * x, 4 * y);
+                decompressBlockAlpha16bit(src, alphaimg2, width, height, 4 * x, 4 * y);
+                src += 8;
+            }
+        }
+    }
+    if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+    {
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                img[6 * (y * width + x)] = alphaimg[2 * (y * width + x)];
+                img[6 * (y * width + x) + 1] = alphaimg[2 * (y * width + x) + 1];
+                img[6 * (y * width + x) + 2] = alphaimg2[2 * (y * width + x)];
+                img[6 * (y * width + x) + 3] = alphaimg2[2 * (y * width + x) + 1];
+                img[6 * (y * width + x) + 4] = 0;
+                img[6 * (y * width + x) + 5] = 0;
+            }
+        }
+    }
 
-// The module init function
-PyMODINIT_FUNC PyInit_tex2img(void) {
-    return PyModule_Create( &tex2img_module);
+    // Ok, and now only write out the active pixels to the .ppm file.
+    // (But only if the active pixels differ from the total pixels)
+
+    if (!(height == active_height && width == active_width))
+    {
+        if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+            newimg = (uint8 *)malloc(3 * active_width * active_height * 2);
+        else
+            newimg = (uint8 *)malloc(3 * active_width * active_height);
+
+        if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_RGBA1_NO_MIPMAPS || format == ETC2PACKAGE_R_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA1_NO_MIPMAPS)
+        {
+            newalphaimg = (uint8 *)malloc(active_width * active_height * 2);
+        }
+
+        // Convert from total area to active area:
+
+        for (yy = 0; yy < active_height; yy++)
+        {
+            for (xx = 0; xx < active_width; xx++)
+            {
+                if (format != ETC2PACKAGE_R_NO_MIPMAPS && format != ETC2PACKAGE_RG_NO_MIPMAPS)
+                {
+                    newimg[(yy * active_width) * 3 + xx * 3 + 0] = img[(yy * width) * 3 + xx * 3 + 0];
+                    newimg[(yy * active_width) * 3 + xx * 3 + 1] = img[(yy * width) * 3 + xx * 3 + 1];
+                    newimg[(yy * active_width) * 3 + xx * 3 + 2] = img[(yy * width) * 3 + xx * 3 + 2];
+                }
+                else if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+                {
+                    newimg[(yy * active_width) * 6 + xx * 6 + 0] = img[(yy * width) * 6 + xx * 6 + 0];
+                    newimg[(yy * active_width) * 6 + xx * 6 + 1] = img[(yy * width) * 6 + xx * 6 + 1];
+                    newimg[(yy * active_width) * 6 + xx * 6 + 2] = img[(yy * width) * 6 + xx * 6 + 2];
+                    newimg[(yy * active_width) * 6 + xx * 6 + 3] = img[(yy * width) * 6 + xx * 6 + 3];
+                    newimg[(yy * active_width) * 6 + xx * 6 + 4] = img[(yy * width) * 6 + xx * 6 + 4];
+                    newimg[(yy * active_width) * 6 + xx * 6 + 5] = img[(yy * width) * 6 + xx * 6 + 5];
+                }
+                if (format == ETC2PACKAGE_R_NO_MIPMAPS)
+                {
+                    newalphaimg[((yy * active_width) + xx) * 2] = alphaimg[2 * ((yy * width) + xx)];
+                    newalphaimg[((yy * active_width) + xx) * 2 + 1] = alphaimg[2 * ((yy * width) + xx) + 1];
+                }
+                if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_RGBA1_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA1_NO_MIPMAPS)
+                {
+                    newalphaimg[((yy * active_width) + xx)] = alphaimg[((yy * width) + xx)];
+                }
+            }
+        }
+
+        free(img);
+        img = newimg;
+        if (format == ETC2PACKAGE_RGBA_NO_MIPMAPS || format == ETC2PACKAGE_RGBA1_NO_MIPMAPS || format == ETC2PACKAGE_R_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA_NO_MIPMAPS || format == ETC2PACKAGE_sRGBA1_NO_MIPMAPS)
+        {
+            free(alphaimg);
+            alphaimg = newalphaimg;
+        }
+        if (format == ETC2PACKAGE_RG_NO_MIPMAPS)
+        {
+            free(alphaimg);
+            free(alphaimg2);
+            alphaimg = NULL;
+            alphaimg2 = NULL;
+        }
+    }
 }

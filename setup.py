@@ -29,14 +29,12 @@ setup(
             Extension(
                   "tex2img", 
                   [
-                        *[
-                              os.path.join(root, f)
-                              for root, dirs, files in os.walk("src")
-                              for f in files
-                              if f[-3:] in ["cpp", "cxx"] and not f in ["basisu_tool.cpp"]
-                        ],
-                        "src/main.cpp"
+                        os.path.join(root, f)
+                        for root, dirs, files in os.walk("src")
+                        for f in files
+                        if f[-3:] in ["cpp", "cxx"] and not f in ["basisu_tool.cpp"]
                   ],
-                  language = "c++"
+                  language = "c++",
+                  extra_compile_args=["-std=c++11"]
       )]
 )

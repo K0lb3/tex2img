@@ -34,6 +34,7 @@ typedef signed char int8;
 typedef unsigned short uint16;
 typedef signed short int16;
 typedef unsigned int uint32;
+typedef uint32 uint32;
 typedef unsigned int uint;
 typedef signed int int32;
 #ifdef __GNUC__
@@ -338,11 +339,12 @@ const unsigned int cCRNHeaderMinSize = 62U;
 
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef WIN32
+/*#ifdef WIN32
 #include <memory.h>
 #else
 #include <malloc.h>
 #endif
+*/
 #include <new> // needed for placement new, _msize, _expand
 #include <stdarg.h>
 
