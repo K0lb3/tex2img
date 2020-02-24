@@ -128,8 +128,8 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    uint8 *img;
-    uint8 *alphaimg;
+    uint8 *img = (uint8*)malloc(0);
+    uint8 *alphaimg = (uint8*)malloc(0);
     // moved to a seperate .h to be able to use the etcpack.cxx directly
     _decompress_etc(src, img, alphaimg, width, height, format);
 

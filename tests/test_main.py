@@ -17,9 +17,8 @@ def test_astc():
     _test("ASTC")
 
 
-# def test_etc():
-    # crashs pytest
-    # _test("ETC")
+def test_etc():
+    _test("ETC")
 
 
 def test_crunch():
