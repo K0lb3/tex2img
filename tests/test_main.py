@@ -119,10 +119,6 @@ def _test(func):
 
         elif "ETC" == base_name[:3]:
             if "Crunched" in base_name:
-                if platform == "darwin":
-                    # crunch isn't supported by Mac OS
-                    print(" - not supported by Mac OS")
-                    continue
                 data = crunch_unpack_level(data, 0)
 
             etc_format = {
@@ -139,10 +135,6 @@ def _test(func):
             dec = decompress_pvrtc(data, width, height, 0)
 
         elif func == "crunch" and "Crunched" in base_name:
-            if platform == "darwin":
-                # crunch isn't supported by Mac OS
-                print(" - not supported by Mac OS")
-                continue
             data = crunch_unpack_level(data, 0)
             continue
 
