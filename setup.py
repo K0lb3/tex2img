@@ -8,7 +8,7 @@ setup(
       name = "tex2img",
 	description="a texture decompression C++-extension for Python",
 	author="K0lb3",
-      version = "0.8.0",
+      version = "0.8.1",
 	keywords=['astc', 'atc', 'pvrtc', "etc", "crunch"],
 	classifiers=[
 		"License :: OSI Approved :: MIT License",

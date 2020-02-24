@@ -22,13 +22,14 @@ def test_astc():
     # _test("ETC")
 
 
+def test_crunch():
+    _test("crunch")
+
+
 if platform != "darwin":
     # crashs pytest on MacOS
     def test_pvrtc():
         _test("PVRTC")
-
-    def test_crunch():
-        _test("crunch")
 
 if platform != "win32":
     # this check causes a

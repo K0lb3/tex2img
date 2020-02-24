@@ -218,31 +218,15 @@ static PyObject * decompress_etc(PyObject * self, PyObject * args) {
  * 
  ************************************************
 */
-#if defined(__APPLE__)
-#define malloc_usable_size malloc_size
-
-static PyObject *crunch_get_texture_info(PyObject *self, PyObject *args)
-{
-    return NULL;
-}
-
-static PyObject *crunch_get_level_info(PyObject *self, PyObject *args)
-{
-    return NULL;
-}
-
-static PyObject *crunch_unpack_level(PyObject *self, PyObject *args)
-{
-    return NULL;
-}
-
-#else
-
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <string.h>
 #include <algorithm>
 
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#define malloc_usable_size malloc_size
+#else
 #if defined(__FreeBSD__)
 #include <stdlib.h>
 #else
@@ -250,6 +234,7 @@ static PyObject *crunch_unpack_level(PyObject *self, PyObject *args)
 
 #ifdef _WIN32
 #define malloc_usable_size _msize
+#endif
 #endif
 #endif
 
@@ -376,7 +361,7 @@ static PyObject *crunch_unpack_level(PyObject *self, PyObject *args)
     crnd::crnd_unpack_end(pContext);
     return Py_BuildValue("y#", pFaces[0], size_of_face);
 }
-#endif
+
 /*
  *************************************************
  * 
