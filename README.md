@@ -27,7 +27,6 @@ python setup.py install
 ## Notes
 
 * decompress_pvrtc seems to have some kind of problem on Mac OS. Mac users might have to use basisu_decompress instead.
-* decompress_etc has a heap corruption which causes a memory leak. The etc unpacking via basisu_decompress works fine tho.
 
 ## Functions
 
