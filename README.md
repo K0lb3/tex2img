@@ -26,9 +26,8 @@ python setup.py install
 
 ## Notes
 
-* Crunch isn't supported on Mac OS. (There is no equivalent for malloc_useable size.)
 * decompress_pvrtc seems to have some kind of problem on Mac OS. Mac users might have to use basisu_decompress instead.
-* decompress_etc has a memory leak. The etc unpacking via basisu_decompress works fine tho.
+* decompress_etc has a heap corruption which causes a memory leak. The etc unpacking via basisu_decompress works fine tho.
 
 ## Functions
 
