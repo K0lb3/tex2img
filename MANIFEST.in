@@ -1,4 +1,4 @@
-include src/*.cpp
-include src/*.cxx
-include src/*.h
-include src/*.py
+recursive-include src *.cpp
+recursive-include src *.cxx
+recursive-include src *.h
+recursive-include src *.inc
