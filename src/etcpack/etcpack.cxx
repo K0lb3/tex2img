@@ -8461,14 +8461,14 @@ extern int alphaBase[16][4];
 // Note that valtab is constructed using get16bits11bits, which means
 // that it already is expanded to 16 bits.
 // Note also that it its contents will depend on the value of formatSigned.
-int *valtab;
+int *valtab = new int[1024*512];
+// This edit was made to prevent following function from reserving new space everytime it's run.
+
 
 void setupAlphaTableAndValtab()
 {
-  setupAlphaTable();
-
+	setupAlphaTable();
 	//fix precomputation table..!
-	valtab = new int[1024*512];
     int16 val16;
 	int count=0;
 	for(int base=0; base<256; base++) 
