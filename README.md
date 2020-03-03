@@ -26,7 +26,7 @@ python setup.py install
 
 ## Notes
 
-* decompress_pvrtc seems to have some kind of problem on Mac OS. Mac users might have to use basisu_decompress instead.
+* the PowerVR pvrtc-decompression causes a segfault error on Mac OS, so decompress_pvrtc will use basisu on Mac OS instead of the original
 
 ## Functions
 
