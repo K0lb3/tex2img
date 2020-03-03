@@ -1,4 +1,5 @@
 #define PY_SSIZE_T_CLEAN
+#pragma once
 #include <Python.h>
 #include "main.h"
 
@@ -13,7 +14,7 @@
 static PyObject *basisu_decompress(PyObject *self, PyObject *args)
 {
     uint8_t *src;
-    size_t src_size;
+    uint32_t src_size;
     int width, height;
     int format;
 
@@ -22,15 +23,15 @@ static PyObject *basisu_decompress(PyObject *self, PyObject *args)
 
     if (width == 0 || height == 0)
         return NULL;
-    
-    uint8_t* dst = (uint8_t*) malloc(width * height * 4);
+
+    uint8_t *dst = (uint8_t *)malloc(width * height * 4);
 
     if (format == 11 || format == 12)
         _basisu_pvrtc(src, src_size, dst, width, height);
     else
         _basisu_decompress(src, dst, width, height, format);
 
-    PyObject *ret = Py_BuildValue("y#", dst, width*height*4);
+    PyObject *ret = Py_BuildValue("y#", dst, width * height * 4);
     free(dst);
     return ret;
 }
@@ -128,8 +129,8 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    uint8 *img = (uint8*)malloc(0);
-    uint8 *alphaimg = (uint8*)malloc(0);
+    uint8 *img = (uint8 *)malloc(0);
+    uint8 *alphaimg = (uint8 *)malloc(0);
     // moved to a seperate .h to be able to use the etcpack.cxx directly
     _decompress_etc(src, img, alphaimg, width, height, format);
 
@@ -167,11 +168,14 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
 
 #include "pvrtc_decoder/PVRTDecompress.h"
 
+#if defined(__APPLE__)
+#define OS_MAC 1
+#endif
+
 static PyObject *decompress_pvrtc(PyObject *self, PyObject *args)
 {
-    //works
     uint8_t *src;
-    unsigned int src_size;
+    uint32_t src_size;
     uint32_t width, height, do2bit_mode;
 
     if (!PyArg_ParseTuple(args, "y#iib", &src, &src_size, &width, &height, &do2bit_mode))
@@ -181,11 +185,18 @@ static PyObject *decompress_pvrtc(PyObject *self, PyObject *args)
 
     uint32_t dst_size = sizeof(uint8_t) * width * height * 4;
     uint8_t *dst = (uint8_t *)malloc(dst_size);
+
+#ifndef OS_MAC
     pvr::PVRTDecompressPVRTC(src, do2bit_mode, width, height, dst);
+#else
+    // for whatever reason MAC has a problem with casts in the function call
+    int mac_width = (int)width;
+    int mac_height = (int)height;
+    _basisu_pvrtc(src, src_size, dst, mac_width, mac_height);
+#endif
 
     PyObject *ret = Py_BuildValue("y#", dst, dst_size);
     free(dst);
-
     return ret;
 }
 /*
@@ -372,11 +383,10 @@ static PyObject *crunch_unpack_level(PyObject *self, PyObject *args)
 
 // Exported methods are collected in a table
 static struct PyMethodDef method_table[] = {
-    {
-        "basisu_decompress",
-        (PyCFunction)basisu_decompress,
-        METH_VARARGS,
-        "Decompresses data compressed via a block compression to RGBA via basisu's unpack_block function.\n\
+    {"basisu_decompress",
+     (PyCFunction)basisu_decompress,
+     METH_VARARGS,
+     "Decompresses data compressed via a block compression to RGBA via basisu's unpack_block function.\n\
         Formats:\n\
             0 - cETC1       - ETC1\n\
             1 - cETC1S      - ETC1(subset:diff colors only, no subblocks)\n\
@@ -405,12 +415,11 @@ static struct PyMethodDef method_table[] = {
         : param height : image height\n\
         : type height : int\n\
         : param format : see list above\n\
-        : type format : int"
-        },
-        {"decompress_astc",
-         (PyCFunction)decompress_astc,
-         METH_VARARGS,
-         "Decompresses raw astc-compressed data to RGBA\n\
+        : type format : int"},
+    {"decompress_astc",
+     (PyCFunction)decompress_astc,
+     METH_VARARGS,
+     "Decompresses raw astc-compressed data to RGBA\n\
         :param src: compressed data\n\
         :type src: bytes\n\
         :param width: image width\n\
@@ -423,10 +432,10 @@ static struct PyMethodDef method_table[] = {
         :type block_height: int\n\
         :param isSRGB: False\n\
         :type isSRGB: bool"},
-        {"decompress_atc",
-         (PyCFunction)decompress_atc,
-         METH_VARARGS,
-         "Decompresses raw atc-compressed data to RGBA\n\
+    {"decompress_atc",
+     (PyCFunction)decompress_atc,
+     METH_VARARGS,
+     "Decompresses raw atc-compressed data to RGBA\n\
         :param src: compressed data\n\
         :type src: bytes\n\
         :param width: image width\n\
@@ -435,10 +444,10 @@ static struct PyMethodDef method_table[] = {
         :type height: int\n\
         :param alpha: True if ATC RGBA else False\n\
         :type alpha: bool"},
-        {"decompress_pvrtc",
-         (PyCFunction)decompress_pvrtc,
-         METH_VARARGS,
-         "Decompresses raw pvrtc-compressed data to RGBA\n\
+    {"decompress_pvrtc",
+     (PyCFunction)decompress_pvrtc,
+     METH_VARARGS,
+     "Decompresses raw pvrtc-compressed data to RGBA\n\
         :param src: compressed data\n\
         :type src: bytes\n\
         :param width: image width\n\
@@ -447,10 +456,10 @@ static struct PyMethodDef method_table[] = {
         :type height: int\n\
         :param do2bit_mode: 0\n\
         :type do2bit_mode: int"},
-        {"decompress_etc",
-         (PyCFunction)decompress_etc,
-         METH_VARARGS,
-         "Decompresses raw etc-compressed data to RGB(A)\n\
+    {"decompress_etc",
+     (PyCFunction)decompress_etc,
+     METH_VARARGS,
+     "Decompresses raw etc-compressed data to RGB(A)\n\
         This function has a memory leak, so it might crash\
         if you use it on too many images at once (~500+)\n\
         The basisu_decompress function also supports most ETC,\
@@ -478,36 +487,36 @@ static struct PyMethodDef method_table[] = {
         :type height: int\n\
         :param format: see list above\n\
         :type format: int"},
-        {"crunch_get_texture_info",
-         (PyCFunction)crunch_get_texture_info,
-         METH_VARARGS,
-         "Retrieves texture information from the CRN file.\n\
+    {"crunch_get_texture_info",
+     (PyCFunction)crunch_get_texture_info,
+     METH_VARARGS,
+     "Retrieves texture information from the CRN file.\n\
         :param data: byte data of the file\n\
         :type data: bytes\n\
         :returns: dict"},
-        {"crunch_get_level_info",
-         (PyCFunction)crunch_get_level_info,
-         METH_VARARGS,
-         "Retrieves mipmap level specific information from the CRN file.\n\
+    {"crunch_get_level_info",
+     (PyCFunction)crunch_get_level_info,
+     METH_VARARGS,
+     "Retrieves mipmap level specific information from the CRN file.\n\
         :param data: byte data of the file\n\
         :type data: bytes\n\
         :param level: mipmap level\n\
         :type level: int\n\
         :returns: dict"},
-        {"crunch_unpack_level",
-         (PyCFunction)crunch_unpack_level,
-         METH_VARARGS,
-         "Transcodes the specified mipmap level to a destination buffer.\n\
+    {"crunch_unpack_level",
+     (PyCFunction)crunch_unpack_level,
+     METH_VARARGS,
+     "Transcodes the specified mipmap level to a destination buffer.\n\
         :param data: byte data of the file\n\
         :type data: bytes\n\
         :param level: mipmap level\n\
         :type level: int\n\
         :returns: bytes"},
-        {NULL,
-         NULL,
-         0,
-         NULL} // Sentinel value ending the table
-    };
+    {NULL,
+     NULL,
+     0,
+     NULL} // Sentinel value ending the table
+};
 
 // A struct contains the definition of a module
 static PyModuleDef tex2img_module = {

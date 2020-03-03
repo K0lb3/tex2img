@@ -25,59 +25,61 @@ void _basisu_decompress(uint8_t *src, uint8_t *dst, int &width, int &height, int
     uint32_t blocks_y = (height + block_height - 1) / block_height;
 
     basisu::color_rgba pPixels[12 * 12];
-    basisu::color_rgba pix;
-    uint32_t y, x, by, bx, px, py, dxt;
+
+    uint8_t *block;
+
+    uint32_t bx, by, row_length;
+    uint32_t py, y, dst_pixel_pos, block_pixel_pos;
+
+    uint32_t normal_row_length = block_width * 4;
+    uint32_t short_row_length = (width - block_width * (blocks_x - 1)) * 4;
 
     for (by = 0; by < blocks_y; by++)
-    {
         for (bx = 0; bx < blocks_x; bx++)
         {
+            // decode the block
             basisu::unpack_block(fmt, src, pPixels);
-
+            block = (uint8_t *)pPixels;
             src += bytes_per_block;
+
+            // write the block to the correct position
+
+            // select the required row length
+            if (bx < blocks_x - 1)
+                row_length = normal_row_length;
+            else
+                row_length = short_row_length;
 
             for (y = 0; y < block_height; y++)
             {
+                // y position in the decoded image
                 py = y + by * block_height;
+                // we can ignore it if it's above the height -> out of the original image
                 if (py >= height)
                     break;
-                for (x = 0; x < block_width; x++)
-                {
-                    px = x + bx * block_width;
-                    if (px >= width)
-                        break;
-                    dxt = (py * width + px) * 4;
-                    pix = pPixels[y * block_width + x];
-                    dst[dxt + 0] = pix.r;
-                    dst[dxt + 1] = pix.g;
-                    dst[dxt + 2] = pix.b;
-                    dst[dxt + 3] = pix.a;
-                }
+
+                // calculate the correct position in the decoded image
+                dst_pixel_pos = (py * width + bx * block_width) * 4;
+                block_pixel_pos = (y * block_width) * 4;
+                memcpy(dst + dst_pixel_pos, block + block_pixel_pos, row_length);
             }
         }
-    }
 }
 
 #include "basisu/basisu_pvrtc1_4.h"
 
-void _basisu_pvrtc(uint8_t *src, uint32_t src_size, uint8_t *dst, int &width, int &height){
+void _basisu_pvrtc(uint8_t *src, uint32_t src_size, uint8_t *dst, int &width, int &height)
+{
     basisu::pvrtc4_image pi(width, height);
     pi.set_to_black();
     memcpy(&pi.get_blocks()[0], src, src_size);
     pi.deswizzle();
-    basisu::color_rgba pix;
-    uint32_t pix_pos = 0;
-    //pi.unpack_all_pixels(img);
     for (uint32_t y = 0; y < height; y++)
-		for (uint32_t x = 0; x < width; x++)
-            {
-                pix = pi.get_pixel(x, y);
-                dst[pix_pos+0] = pix.r;
-                dst[pix_pos+1] = pix.g;
-                dst[pix_pos+2] = pix.b;
-                dst[pix_pos+3] = pix.a;
-                pix_pos += 4;
-            }
+        for (uint32_t x = 0; x < width; x++)
+        {
+            memcpy(dst, pi.get_pixel(x, y).m_comps, 4);
+            dst += 4;
+        }
 }
 
 void _decompress_atc(uint8_t *src, uint8_t *dst, int &width, int &height, bool &alpha)
@@ -214,16 +216,15 @@ void _decompress_astc(uint8_t *src, uint8_t *dst, int &width, int &height, int &
  * 
  ************************************************
 */
-void decompressBlockAlphaC(uint8* data, uint8* img, int width, int height, int ix, int iy, int channels);
-void decompressBlockETC21BitAlphaC(unsigned int block_part1, unsigned int block_part2, uint8 *img, uint8* alphaimg, int width, int height, int startx, int starty, int channelsRGB);
+void decompressBlockAlphaC(uint8 *data, uint8 *img, int width, int height, int ix, int iy, int channels);
+void decompressBlockETC21BitAlphaC(unsigned int block_part1, unsigned int block_part2, uint8 *img, uint8 *alphaimg, int width, int height, int startx, int starty, int channelsRGB);
 void decompressBlockETC2c(unsigned int block_part1, unsigned int block_part2, uint8 *img, int width, int height, int startx, int starty, int channels);
 void setupAlphaTableAndValtab();
-void decompressBlockAlpha(uint8* data, uint8* img, int width, int height, int ix, int iy);
-void decompressBlockAlphaC(uint8* data, uint8* img, int width, int height, int ix, int iy, int channels);
-void decompressBlockETC21BitAlpha(unsigned int block_part1, unsigned int block_part2, uint8 *img, uint8* alphaimg, int width, int height, int startx, int starty);
+void decompressBlockAlpha(uint8 *data, uint8 *img, int width, int height, int ix, int iy);
+void decompressBlockAlphaC(uint8 *data, uint8 *img, int width, int height, int ix, int iy, int channels);
+void decompressBlockETC21BitAlpha(unsigned int block_part1, unsigned int block_part2, uint8 *img, uint8 *alphaimg, int width, int height, int startx, int starty);
 void decompressBlockETC2(unsigned int block_part1, unsigned int block_part2, uint8 *img, int width, int height, int startx, int starty);
-void decompressBlockAlpha16bit(uint8* data, uint8* img, int width, int height, int ix, int iy);
-
+void decompressBlockAlpha16bit(uint8 *data, uint8 *img, int width, int height, int ix, int iy);
 
 void conv_big_endian_4byte_word(unsigned int *blockadr, uint8 *bytes)
 {
