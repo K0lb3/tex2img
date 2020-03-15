@@ -23,3 +23,10 @@ install:
 script: 
   - python3 setup.py install || python setup.py install
   - pytest -v -s
+
+deploy:
+  provider: pypi
+  username: __token__
+  password: <pypi_token>
+  edge: true # opt in to dpl v2
+  distributions: "sdist bdist_wheel"
