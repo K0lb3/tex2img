@@ -3,7 +3,8 @@
 [![PyPI supported Python versions](https://img.shields.io/pypi/pyversions/UnityPy.svg)](https://pypi.python.org/pypi/tex2img)
 [![Win/Mac/Linux](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-informational)]()
 [![MIT](https://img.shields.io/pypi/l/UnityPy.svg)](https://github.com/K0lb3/tex2img/blob/master/LICENSE)
-[![Build Status](https://travis-ci.com/K0lb3/tex2img.svg?token=EyD3NSmbq8Jfyqgp2mmq&branch=master)](https://travis-ci.com/K0lb3/tex2img)
+[![Build Status (Travis)](https://travis-ci.com/K0lb3/tex2img.svg?token=EyD3NSmbq8Jfyqgp2mmq&branch=master)](https://travis-ci.com/K0lb3/tex2img)
+[![Build Status (Github)](https://github.com/K0lb3/tex2img/workflows/Test%20and%20Publish/badge.svg?branch=master)](https://github.com/K0lb3/tex2img/actions?query=workflow%3A%22Test+and+Publish%22)
 
 A texture decompression C++-extension for Python.
 
