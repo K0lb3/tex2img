@@ -8,7 +8,7 @@ setup(
     name="tex2img",
     description="a texture decompression C++-extension for Python",
     author="K0lb3",
-    version="0.9.0",
+    version="0.9.1",
     keywords=['astc', 'atc', 'pvrtc', "etc", "crunch"],
     classifiers=[
         "License :: OSI Approved :: MIT License",
@@ -35,6 +35,6 @@ setup(
                 if f[-3:] in ["cpp", "cxx"] and not f in ["basisu_tool.cpp"]
             ],
             language="c++",
-            extra_compile_args=["-std=c++11"]
+            extra_compile_args=["-std=c++11"],
         )]
 )

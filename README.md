@@ -27,7 +27,7 @@ python setup.py install
 
 ## Notes
 
-* the PowerVR pvrtc-decompression causes a segfault error on Mac OS, so decompress_pvrtc will use basisu on Mac OS instead of the original
+* etcpack causes a segfault on linux systems, so linux systems will use basisu under the hood for etc instead
 
 ## Functions
 

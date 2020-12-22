@@ -129,8 +129,36 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    uint8 *img = (uint8 *)malloc(0);
-    uint8 *alphaimg = (uint8 *)malloc(0);
+#if defined(__linux__) || defined(__posic__)
+    uint8_t *dst = (uint8_t *)malloc(width * height * 4);
+    int bformat;
+    switch(format){
+        case ETC1_RGB_NO_MIPMAPS : {
+            bformat = 0;
+            break;
+        }
+        case ETC2PACKAGE_RGB_NO_MIPMAPS : {
+            bformat = 2;
+            break;
+        }
+        case ETC2PACKAGE_RGBA_NO_MIPMAPS_OLD :
+        case ETC2PACKAGE_RGBA_NO_MIPMAPS :
+        case ETC2PACKAGE_RGBA1_NO_MIPMAPS : {
+            bformat = 3;
+            break;
+        }
+        default : {
+            return NULL;
+        }
+    }
+    _basisu_decompress(src, dst, width, height, format);
+
+    PyObject *ret = Py_BuildValue("y#", dst, width * height * 4);
+    free(dst);
+    return ret;
+#else
+    uint8 *img = NULL;
+    uint8 *alphaimg = NULL;
     // moved to a seperate .h to be able to use the etcpack.cxx directly
     _decompress_etc(src, img, alphaimg, width, height, format);
 
@@ -156,6 +184,7 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
     free(img);
     free(alphaimg);
     return ret;
+#endif
 }
 
 /*
@@ -167,10 +196,6 @@ static PyObject *decompress_etc(PyObject *self, PyObject *args)
 */
 
 #include "pvrtc_decoder/PVRTDecompress.h"
-
-#if defined(__APPLE__)
-#define OS_MAC 1
-#endif
 
 static PyObject *decompress_pvrtc(PyObject *self, PyObject *args)
 {
@@ -186,13 +211,13 @@ static PyObject *decompress_pvrtc(PyObject *self, PyObject *args)
     uint32_t dst_size = sizeof(uint8_t) * width * height * 4;
     uint8_t *dst = (uint8_t *)malloc(dst_size);
 
-#ifndef OS_MAC
-    pvr::PVRTDecompressPVRTC(src, do2bit_mode, width, height, dst);
-#else
+#if defined(__APPLE__)
     // for whatever reason MAC has a problem with casts in the function call
     int mac_width = (int)width;
     int mac_height = (int)height;
     _basisu_pvrtc(src, src_size, dst, mac_width, mac_height);
+#else
+    pvr::PVRTDecompressPVRTC(src, do2bit_mode, width, height, dst);
 #endif
 
     PyObject *ret = Py_BuildValue("y#", dst, dst_size);

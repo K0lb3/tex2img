@@ -1,5 +1,5 @@
 // basisu_resampler_filters.cpp
-// Copyright (C) 2019 Binomial LLC. All Rights Reserved.
+// Copyright (C) 2019-2020 Binomial LLC. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -283,7 +283,7 @@ namespace basisu
 		return sum;
 	}
 
-	static const float KAISER_ALPHA = 4.0;
+	//static const float KAISER_ALPHA = 4.0;
 	static double kaiser(double alpha, double half_width, double x)
 	{
 		const double ratio = (x / half_width);
@@ -310,10 +310,22 @@ namespace basisu
 
 	const resample_filter g_resample_filters[] =
 	{
-		 { "box", box_filter, BOX_FILTER_SUPPORT }, { "tent", tent_filter, TENT_FILTER_SUPPORT }, { "bell", bell_filter, BELL_SUPPORT }, { "b-spline", B_spline_filter, B_SPLINE_SUPPORT },
-		 { "mitchell", mitchell_filter, MITCHELL_SUPPORT }, { "lanczos3", lanczos3_filter, LANCZOS3_SUPPORT }, { "blackman", blackman_filter, BLACKMAN_SUPPORT }, { "lanczos4", lanczos4_filter, LANCZOS4_SUPPORT },
-		 { "lanczos6", lanczos6_filter, LANCZOS6_SUPPORT }, { "lanczos12", lanczos12_filter, LANCZOS12_SUPPORT }, { "kaiser", kaiser_filter, KAISER_SUPPORT }, { "gaussian", gaussian_filter, GAUSSIAN_SUPPORT },
-		 { "catmullrom", catmull_rom_filter, CATMULL_ROM_SUPPORT }, { "quadratic_interp", quadratic_interp_filter, QUADRATIC_SUPPORT }, { "quadratic_approx", quadratic_approx_filter, QUADRATIC_SUPPORT }, { "quadratic_mix", quadratic_mix_filter, QUADRATIC_SUPPORT },
+		{ "box", box_filter, BOX_FILTER_SUPPORT }, 
+		{ "tent", tent_filter, TENT_FILTER_SUPPORT }, 
+		{ "bell", bell_filter, BELL_SUPPORT }, 
+		{ "b-spline", B_spline_filter, B_SPLINE_SUPPORT },
+		{ "mitchell", mitchell_filter, MITCHELL_SUPPORT }, 
+		{ "blackman", blackman_filter, BLACKMAN_SUPPORT }, 
+		{ "lanczos3", lanczos3_filter, LANCZOS3_SUPPORT },
+		{ "lanczos4", lanczos4_filter, LANCZOS4_SUPPORT },
+		{ "lanczos6", lanczos6_filter, LANCZOS6_SUPPORT }, 
+		{ "lanczos12", lanczos12_filter, LANCZOS12_SUPPORT }, 
+		{ "kaiser", kaiser_filter, KAISER_SUPPORT }, 
+		{ "gaussian", gaussian_filter, GAUSSIAN_SUPPORT },
+		{ "catmullrom", catmull_rom_filter, CATMULL_ROM_SUPPORT }, 
+		{ "quadratic_interp", quadratic_interp_filter, QUADRATIC_SUPPORT }, 
+		{ "quadratic_approx", quadratic_approx_filter, QUADRATIC_SUPPORT }, 
+		{ "quadratic_mix", quadratic_mix_filter, QUADRATIC_SUPPORT },
 	};
 
 	const int g_num_resample_filters = BASISU_ARRAY_SIZE(g_resample_filters);

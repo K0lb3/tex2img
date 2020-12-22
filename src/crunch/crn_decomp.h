@@ -804,7 +804,7 @@ struct elemental_vector {
 #pragma warning(disable : 4127) //  warning C4127: conditional expression is constant
 #endif
 
-template <typename T> class vector : public helpers::rel_ops<vector<T>> {
+template <typename T> class vector : public helpers::rel_ops<vector<T> > {
   public:
 	typedef T *iterator;
 	typedef const T *const_iterator;
@@ -1067,7 +1067,7 @@ template <typename T> class vector : public helpers::rel_ops<vector<T>> {
 	template <typename Q> struct is_vector {
 		enum { cFlag = false };
 	};
-	template <typename Q> struct is_vector<vector<Q>> {
+	template <typename Q> struct is_vector<vector<Q> > {
 		enum { cFlag = true };
 	};
 
@@ -1159,7 +1159,7 @@ template <> struct color_quad_component_traits<double> {
 #endif
 
 template <typename component_type, typename parameter_type>
-class color_quad : public helpers::rel_ops<color_quad<component_type, parameter_type>> {
+class color_quad : public helpers::rel_ops<color_quad<component_type, parameter_type> > {
 	static parameter_type clamp(parameter_type v) {
 		if (component_traits::cFloat)
 			return v;
@@ -1454,7 +1454,7 @@ class color_quad : public helpers::rel_ops<color_quad<component_type, parameter_
 #pragma warning(pop)
 #endif
 
-template <typename c, typename q> struct scalar_type<color_quad<c, q>> {
+template <typename c, typename q> struct scalar_type<color_quad<c, q> > {
 	enum { cFlag = true };
 	static inline void construct(color_quad<c, q> *p) {}
 	static inline void construct(color_quad<c, q> *p, const color_quad<c, q> &init) {

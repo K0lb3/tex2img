@@ -50,6 +50,13 @@ typedef uint64_t deUint64;
 
 #define DE_ASSERT assert
 
+#ifdef _MSC_VER
+#pragma warning (disable:4505) // unreferenced local function has been removed
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+
 namespace basisu_astc
 {
 	static bool inBounds(int v, int l, int h)
@@ -1256,7 +1263,7 @@ void interpolateWeights (TexelWeightPair* dst, const deUint32 (&unquantizedWeigh
 	const int		numWeightsPerTexel	= blockMode.isDualPlane ? 2 : 1;
 	const deUint32	scaleX				= (1024 + blockWidth/2) / (blockWidth-1);
 	const deUint32	scaleY				= (1024 + blockHeight/2) / (blockHeight-1);
-	DE_ASSERT(blockMode.weightGridWidth*blockMode.weightGridHeight*numWeightsPerTexel <= DE_LENGTH_OF_ARRAY(unquantizedWeights));
+	DE_ASSERT(blockMode.weightGridWidth*blockMode.weightGridHeight*numWeightsPerTexel <= (int)DE_LENGTH_OF_ARRAY(unquantizedWeights));
 	for (int texelY = 0; texelY < blockHeight; texelY++)
 	{
 		for (int texelX = 0; texelX < blockWidth; texelX++)
@@ -1548,3 +1555,7 @@ bool decompress(uint8_t *pDst, const uint8_t * data, bool isSRGB, int blockWidth
 
 } // astc
 } // basisu_astc
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
