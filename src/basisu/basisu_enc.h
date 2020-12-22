@@ -686,7 +686,7 @@ namespace basisu
 	{
 		std::string result(s);
 		for (size_t i = 0; i < result.size(); i++)
-			result[i] = (char)tolower((int)result[i]);
+			result[i] = (char)std::tolower((int)result[i]);
 		return result;
 	}
 
